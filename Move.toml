@@ -1,5 +1,5 @@
 [package]
-name = "ml_auction"
+name = "proxirun"
 version = "1.0.0"
 authors = []
 upgrade_policy = "compatible"
@@ -8,7 +8,7 @@ upgrade_policy = "compatible"
 my_auction="_"
 
 [dev-addresses]
-my_auction="0xdeadbeef"
+proxirun="0xdeadbeef"
 
 
 [dependencies.AptosFramework]

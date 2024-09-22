@@ -1,4 +1,4 @@
-module my_auction::my_auction {
+module proxirun::proxirun {
     use std::signer;
     use std::signer::address_of;
     use std::option;
@@ -28,7 +28,7 @@ module my_auction::my_auction {
     const E_AUCTION_HAS_ENDED: u64 = 200;
     /// ERROR 201: Bid Submission - E_CANNOT_MODIFY_BID
     const E_CANNOT_MODIFY_BID: u64 = 201;
-    /// ERROR 202: Bid Submission - E_CANNOT_MODIFY_BID
+    /// ERROR 202: Bid Submission - E_BID_TOO_EXPENSIVE
     const E_BID_TOO_EXPENSIVE: u64 = 202;
     // 3XX: auction finalization
     /// ERROR 300: Auction Finalization - E_AUUCTION_NOT_ENDED
@@ -36,7 +36,7 @@ module my_auction::my_auction {
     /// ERROR 301: Auction Finalization - E_AUCTION_ALREADY_FINALIZED
     const E_AUCTION_ALREADY_FINALIZED: u64 = 301;
     // 4XX: Commit errors
-    /// ERROR 301: Commit - E_COMMIT_INVALID_STATUS
+    /// ERROR 400: Commit - E_COMMIT_INVALID_STATUS
     const E_COMMIT_INVALID_STATUS: u64 = 400;
 
     // ---------------- CONSTANTS ----------------
@@ -99,9 +99,9 @@ module my_auction::my_auction {
     // ---------------- EVENTS ----------------
     #[event]
     struct OnNewWorkRequest has drop, store {
-        //identifier: vector<u8>,
         request_id: u64,
         requester: address,
+        max_price: u64,
         time_limit: u64,
     }
 
@@ -238,6 +238,7 @@ module my_auction::my_auction {
             OnNewWorkRequest {
                 request_id: curr_id,
                 requester: address_of(account),
+                max_price: price,
                 time_limit: timestamp::now_microseconds() + auction_settings.auction_duration
             }
         );
@@ -268,8 +269,7 @@ module my_auction::my_auction {
         );
     }
 
-    /// Entrypoint for workers to commit their work and get paid
-    /// Or should the admin call it once it receives promised work?
+    /// Entrypoint to validate that the worker has submitted the required work
     public entry fun commit(account: &signer, request_id: u64) acquires Config, AuctionTable, UserBalanceTable {
         only_admin(account);
 
@@ -305,9 +305,9 @@ module my_auction::my_auction {
         );
     }
 
-    /// Entrypoint called by the admin once an auction has reached its termination time
-    public entry fun finalize_auction(account: &signer, request_id: u64) acquires Config, AuctionSettings, AuctionTable, UserBalanceTable {
-        only_admin(account);
+    /// Entrypoint called once an auction has reached its termination time
+    public entry fun finalize_auction(account: &signer, request_id: u64) acquires /*Config,*/ AuctionSettings, AuctionTable, UserBalanceTable {
+        //only_admin(account);
 
         let auction_table = borrow_global_mut<AuctionTable>(@my_auction);
         let auction_entry = smart_vector::borrow_mut(&mut auction_table.auction_entries, request_id);
