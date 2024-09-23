@@ -148,7 +148,7 @@ module proxirun::proxirun {
         };
         move_to(account, user_balance_table);
 
-        let auction_settings = AuctionSettings { auction_duration: 120000000};  // in microseconds
+        let auction_settings = AuctionSettings { auction_duration: 6000000};  // 6 seconds, in microseconds
         move_to(account, auction_settings);
 
         let auction_table = AuctionTable {
@@ -160,7 +160,7 @@ module proxirun::proxirun {
 
     // ---------------- MODIFIERS ----------------
     fun only_admin(account: &signer) acquires Config {
-        let config = borrow_global<Config>(@my_auction);
+        let config = borrow_global<Config>(@proxirun);
         if (address_of(account) != config.admin) {
             abort E_UNAUTHORIZED
         };
@@ -171,15 +171,15 @@ module proxirun::proxirun {
     public entry fun update_auction_settings(account: &signer, new_duration: u64) acquires AuctionSettings, Config {
         only_admin(account);
 
-        let auction_settings = borrow_global_mut<AuctionSettings>(@my_auction);
+        let auction_settings = borrow_global_mut<AuctionSettings>(@proxirun);
         auction_settings.auction_duration = new_duration;
     }
 
     public entry fun deposit(account: &signer, amount: u64 ) acquires UserBalanceTable, Config {
-        let config = borrow_global<Config>(@my_auction);
+        let config = borrow_global<Config>(@proxirun);
         coin::transfer<aptos_framework::aptos_coin::AptosCoin>(account, config.bank_address, amount);
 
-        let balance_table = borrow_global_mut<UserBalanceTable>(@my_auction);
+        let balance_table = borrow_global_mut<UserBalanceTable>(@proxirun);
         let user_entry = smart_table::borrow_mut_with_default(&mut balance_table.user_balances, address_of(account), UserBalanceEntry {
             available: 0,
             locked: 0
@@ -189,7 +189,7 @@ module proxirun::proxirun {
     }
 
     public entry fun withdraw(account: &signer, amount: u64 ) acquires UserBalanceTable, Config {
-        let balance_table = borrow_global_mut<UserBalanceTable>(@my_auction);
+        let balance_table = borrow_global_mut<UserBalanceTable>(@proxirun);
         let user_entry = smart_table::borrow_mut_with_default(&mut balance_table.user_balances, address_of(account), UserBalanceEntry {
             available: 0,
             locked: 0
@@ -200,13 +200,13 @@ module proxirun::proxirun {
 
         user_entry.available = user_entry.available - amount;
 
-        let config = borrow_global<Config>(@my_auction);
+        let config = borrow_global<Config>(@proxirun);
         let bank_signer = create_signer_with_capability(&config.bank_signer);
         coin::transfer<aptos_framework::aptos_coin::AptosCoin>(&bank_signer, address_of(account), amount);
     }
 
     public entry fun create_work_request(account: &signer, price: u64) acquires UserBalanceTable, AuctionTable, AuctionSettings {
-        let balance_table = borrow_global_mut<UserBalanceTable>(@my_auction);
+        let balance_table = borrow_global_mut<UserBalanceTable>(@proxirun);
         let user_entry = smart_table::borrow_mut_with_default(&mut balance_table.user_balances, address_of(account), UserBalanceEntry {
             available: 0,
             locked: 0
@@ -219,8 +219,8 @@ module proxirun::proxirun {
         user_entry.available = user_entry.available - price;
         user_entry.locked = user_entry.locked + price;
 
-        let auction_settings = borrow_global<AuctionSettings>(@my_auction);
-        let auction_table = borrow_global_mut<AuctionTable>(@my_auction);
+        let auction_settings = borrow_global<AuctionSettings>(@proxirun);
+        let auction_table = borrow_global_mut<AuctionTable>(@proxirun);
 
         let curr_id = smart_vector::length(&auction_table.auction_entries);
         smart_vector::push_back(&mut auction_table.auction_entries, AuctionEntry {
@@ -246,11 +246,11 @@ module proxirun::proxirun {
     }
 
     public entry fun bid_work_request(account: &signer, request_id: u64, price: u64) acquires AuctionTable, AuctionSettings {
-        let auction_table = borrow_global_mut<AuctionTable>(@my_auction);
+        let auction_table = borrow_global_mut<AuctionTable>(@proxirun);
 
         // check if the work request exists and is still active
         // borrow aborts if the key is not found, or price is above max_price for the request
-        let auction_settings = borrow_global<AuctionSettings>(@my_auction);
+        let auction_settings = borrow_global<AuctionSettings>(@proxirun);
         let auction_entry = smart_vector::borrow_mut(&mut auction_table.auction_entries, request_id);
         if (timestamp::now_microseconds() > auction_entry.work_request.submission_time + auction_settings.auction_duration) {
             abort E_AUCTION_HAS_ENDED
@@ -273,7 +273,7 @@ module proxirun::proxirun {
     public entry fun commit(account: &signer, request_id: u64) acquires Config, AuctionTable, UserBalanceTable {
         only_admin(account);
 
-        let auction_table = borrow_global_mut<AuctionTable>(@my_auction);
+        let auction_table = borrow_global_mut<AuctionTable>(@proxirun);
         let auction_entry = smart_vector::borrow_mut(&mut auction_table.auction_entries, request_id);
 
         if (auction_entry.status != S_WAIT_COMMIT) {
@@ -283,7 +283,7 @@ module proxirun::proxirun {
         auction_entry.status = S_RECEIVED_COMMIT;
 
         // pay provider and refund user for price delta
-        let balances = borrow_global_mut<UserBalanceTable>(@my_auction);
+        let balances = borrow_global_mut<UserBalanceTable>(@proxirun);
         let user_entry = smart_table::borrow_mut(&mut balances.user_balances, auction_entry.work_request.requester);
         let worker_bid = option::borrow (&mut auction_entry.winner);
 
@@ -309,7 +309,7 @@ module proxirun::proxirun {
     public entry fun finalize_auction(account: &signer, request_id: u64) acquires /*Config,*/ AuctionSettings, AuctionTable, UserBalanceTable {
         //only_admin(account);
 
-        let auction_table = borrow_global_mut<AuctionTable>(@my_auction);
+        let auction_table = borrow_global_mut<AuctionTable>(@proxirun);
         let auction_entry = smart_vector::borrow_mut(&mut auction_table.auction_entries, request_id);
 
         // check valid status
@@ -318,7 +318,7 @@ module proxirun::proxirun {
         };
 
         // check time limit
-        let auction_settings = borrow_global<AuctionSettings>(@my_auction);
+        let auction_settings = borrow_global<AuctionSettings>(@proxirun);
         if (auction_entry.work_request.submission_time + auction_settings.auction_duration > timestamp::now_microseconds()) {
             abort E_AUCTION_NOT_ENDED
         };
@@ -326,7 +326,7 @@ module proxirun::proxirun {
         // process the results of the auction
         if (vector::length(&auction_entry.bids) == 0) {
             // auction unsuccessful unlock funds
-            let balances = borrow_global_mut<UserBalanceTable>(@my_auction);
+            let balances = borrow_global_mut<UserBalanceTable>(@proxirun);
             let user_entry = smart_table::borrow_mut(&mut balances.user_balances, auction_entry.work_request.requester);
             user_entry.available = user_entry.available + auction_entry.work_request.max_price;
             user_entry.locked = user_entry.locked - auction_entry.work_request.max_price;
@@ -371,7 +371,7 @@ module proxirun::proxirun {
     // ---------------- VIEWS ----------------
     #[view]
     public fun get_work_request(request_id: u64): WorkRequest acquires AuctionTable {
-        let auction_table = borrow_global<AuctionTable>(@my_auction);
+        let auction_table = borrow_global<AuctionTable>(@proxirun);
         let auction_entry = smart_vector::borrow(&auction_table.auction_entries, request_id);
 
         auction_entry.work_request
@@ -379,7 +379,7 @@ module proxirun::proxirun {
 
     #[view]
     public fun get_user_balance(user: address): UserBalanceEntry acquires UserBalanceTable {
-        let balances = borrow_global<UserBalanceTable>(@my_auction);
+        let balances = borrow_global<UserBalanceTable>(@proxirun);
         let user_balance = smart_table::borrow_with_default(
             &balances.user_balances,
             user,
@@ -394,20 +394,20 @@ module proxirun::proxirun {
 
     #[view]
     public fun get_bids(request_id: u64): vector<Bid> acquires AuctionTable {
-        let auction_table = borrow_global<AuctionTable>(@my_auction);
+        let auction_table = borrow_global<AuctionTable>(@proxirun);
         smart_vector::borrow(&auction_table.auction_entries, request_id).bids
     }
 
     #[view]
     public fun get_auction(request_id: u64): AuctionEntry acquires AuctionTable {
-        let auction_table = borrow_global<AuctionTable>(@my_auction);
+        let auction_table = borrow_global<AuctionTable>(@proxirun);
         *smart_vector::borrow(&auction_table.auction_entries, request_id)
     }
 
     #[view]
     public fun get_batch_auction(request_ids: vector<u64>): vector<AuctionEntry> acquires AuctionTable {
         let accumulator = vector::empty<AuctionEntry>();
-        let auction_table = borrow_global<AuctionTable>(@my_auction);
+        let auction_table = borrow_global<AuctionTable>(@proxirun);
 
         for (i in 0..vector::length(&request_ids)) {
             let request_id = vector::borrow(&request_ids, i);
@@ -419,12 +419,12 @@ module proxirun::proxirun {
 
     #[view]
     public fun get_auction_settings(): AuctionSettings acquires AuctionSettings {
-        *borrow_global<AuctionSettings>(@my_auction)
+        *borrow_global<AuctionSettings>(@proxirun)
     }
 
     #[view]
     public fun get_counter(): u64 acquires AuctionTable {
-        let auction_table = borrow_global<AuctionTable>(@my_auction);
+        let auction_table = borrow_global<AuctionTable>(@proxirun);
         smart_vector::length(&auction_table.auction_entries)
     }
 

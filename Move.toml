@@ -5,7 +5,7 @@ authors = []
 upgrade_policy = "compatible"
 
 [addresses]
-my_auction="_"
+proxirun="0x9476528b38675eaf7fcc4d18c9472f22efd24532cad25a27794c6f7300df06cc"
 
 [dev-addresses]
 proxirun="0xdeadbeef"
