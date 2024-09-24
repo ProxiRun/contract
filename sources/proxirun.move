@@ -435,39 +435,462 @@ module proxirun::proxirun {
     use std::string::{String,utf8};
     #[test_only]
     use aptos_framework::account;
+    #[test_only]
+    use std::debug;
+
+    // errors
+    #[test_only]
+    const E_INVALID_BALANCE: u64 = 1;
+    #[test_only]
+    const E_INVALID_AUCTION_STATUS: u64 = 2;
+
+    //#[test_only]
+    //const E_INVALID_BALANCE: u64 = 1;
 
 
-    /*
-    #[test(admin = @ml_auction2, user=@0xBABE, aptos_addr=@0x1, processor=@0xBABA)] // OK
-    fun test_deposit(admin: signer, user: signer, aptos_addr: signer, processor: signer) acquires UserBalances, Config, ContractData, AuctionSettings, AuctionResultTracker {
-        account::create_account_for_test(address_of(&user));
-        account::create_account_for_test(address_of(&processor));
-        timestamp::set_time_has_started_for_testing(&aptos_addr);
 
-        let (a, b, mint_cap) = coin::initialize<AptosCoin>(&aptos_addr,  utf8(b"YEP"), utf8(b"YEP"), 8, false );
-        let coins = coin::mint<AptosCoin>(4200, &mint_cap);
 
-        coin::register<AptosCoin>(&user);
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    fun test_deposit(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
 
-        coin::destroy_burn_cap(a);
-        coin::destroy_freeze_cap(b);
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
         coin::destroy_mint_cap(mint_cap);
 
-        coin::deposit(address_of(&user), coins);
+        init_module(admin);
 
-        init_module(&admin);
-        deposit(&user, 64);
+        // ---------- TEST LOGIC ----------
+        deposit(user, 64);
+
+        let user_balance = get_user_balance(
+            address_of(user)
+        );
+
+        assert!(
+            user_balance.available == 64,
+            E_INVALID_BALANCE
+        );
+
+        assert!(
+            user_balance.locked == 0,
+            E_INVALID_BALANCE
+        );
+
+        /*
         withdraw(&user, 32);
 
         create_work_request(&user, 32);
         bid_work_request(&processor, 0, 16);
 
-        timestamp::fast_forward_seconds(100);
+        //timestamp::fast_forward_seconds(100);
 
         finalize_auction(&admin, 0);
         commit(&admin, 0);
+        */
     }
-    */
+
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    fun test_deposit_withdrawal_success_no_locked(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+
+        deposit(user, 64);
+        let user_balance = get_user_balance(
+            address_of(user)
+        );
+        assert!(
+            user_balance.available == 64,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            user_balance.locked == 0,
+            E_INVALID_BALANCE
+        );
+
+        withdraw(user, 32);
+        let new_user_balance = get_user_balance(
+            address_of(user)
+        );
+
+        assert!(
+            new_user_balance.available == 32,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            new_user_balance.locked == 0,
+            E_INVALID_BALANCE
+        );
+    }
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    #[expected_failure(abort_code=E_INVALID_WITHDRAWAL)]
+    fun test_deposit_withdrawal_failure_no_locked(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+        deposit(user, 64);
+        withdraw(user, 128);
+    }
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    fun test_submit_request_success(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config, AuctionTable, AuctionSettings {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+        deposit(user, 1000);
+
+        create_work_request(user, 256)
+    }
+
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    #[expected_failure(abort_code=E_INSUFFICIENT_DEPOSIT)]
+    fun test_submit_request_failure_funds(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config, AuctionTable, AuctionSettings {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+        deposit(user, 1000);
+        create_work_request(user, 1258);
+    }
+
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    #[expected_failure(abort_code=E_AUCTION_NOT_ENDED)]
+    fun test_auction_time_limit(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config, AuctionTable, AuctionSettings {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+        deposit(user, 1000);
+        create_work_request(user, 256);
+
+        // try to end auction, should fail since time hasn't been advanced
+        finalize_auction(admin, 0);
+
+    }
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    fun test_auction_finalization_no_bids(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config, AuctionTable, AuctionSettings {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+        deposit(user, 1000);
+        create_work_request(user, 256);
+
+        // check funds are locked and match expectations
+        let user_balance = get_user_balance(
+            address_of(user)
+        );
+        assert!(
+            user_balance.available == 1000 - 256,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            user_balance.locked == 256,
+            E_INVALID_BALANCE
+        );
+
+        // check status is ok
+        let auction = get_auction(0);
+        assert!(
+            auction.status == S_AUCTION_RUNNING,
+            E_INVALID_AUCTION_STATUS
+        );
+
+        // advance time to end auction
+        timestamp::fast_forward_seconds(100);
+        finalize_auction(admin, 0);
+
+        // check status is ok
+        let auction = get_auction(0);
+        assert!(
+            auction.status == S_AUCTION_NO_WINNER,
+            E_INVALID_AUCTION_STATUS
+        );
+
+        // check that funds have been unlocked since no winners
+        let user_balance = get_user_balance(
+            address_of(user)
+        );
+        assert!(
+            user_balance.available == 1000,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            user_balance.locked == 0,
+            E_INVALID_BALANCE
+        );
+    }
+
+
+    #[test(admin = @proxirun, user=@0xBABE, aptos_addr=@0x1, worker=@0xBABA)] // OK
+    fun test_auction_finalization_bids_and_commit(admin: &signer, user: &signer, aptos_addr: &signer, worker: &signer) acquires UserBalanceTable, Config, AuctionTable, AuctionSettings {
+        // ---------- TEST INIT ----------
+        timestamp::set_time_has_started_for_testing(aptos_addr);
+
+        // create accountss
+        account::create_account_for_test(address_of(admin));
+        account::create_account_for_test(address_of(user));
+        account::create_account_for_test(address_of(worker));
+
+        // Set up aptos balances
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<AptosCoin>(aptos_addr,  utf8(b"Aptos"), utf8(b"APT"), 8, false );
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(admin);
+        coin::deposit(address_of(admin), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(user);
+        coin::deposit(address_of(user), coins);
+        let coins = coin::mint<AptosCoin>(100_000_000, &mint_cap);
+        coin::register<AptosCoin>(worker);
+        coin::deposit(address_of(worker), coins);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_freeze_cap(freeze_cap);
+        coin::destroy_mint_cap(mint_cap);
+
+        init_module(admin);
+
+        // ---------- TEST LOGIC ----------
+        deposit(user, 1000);
+
+        let user_price = 256;
+        let worker_price = 128;
+        create_work_request(user, user_price);
+
+
+        let auction = get_auction(0);
+        assert!(
+            auction.status == S_AUCTION_RUNNING,
+            E_INVALID_AUCTION_STATUS
+        );
+
+        // bid from worker
+        bid_work_request(worker, 0, worker_price);
+
+        // advance time to end auction
+        timestamp::fast_forward_seconds(100);
+        finalize_auction(admin, 0);
+
+        // check status is ok
+        let auction = get_auction(0);
+        assert!(
+            auction.status == S_WAIT_COMMIT,
+            E_INVALID_AUCTION_STATUS
+        );
+
+        // check funds are locked and match expectations
+        let user_balance = get_user_balance(
+            address_of(user)
+        );
+        assert!(
+            user_balance.available == 1000 - user_price,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            user_balance.locked == user_price,
+            E_INVALID_BALANCE
+        );
+
+        // send commit on receiving worker output
+        commit(admin, 0);
+
+        // check status is ok
+        let auction = get_auction(0);
+        assert!(
+            auction.status == S_RECEIVED_COMMIT,
+            E_INVALID_AUCTION_STATUS
+        );
+
+        // and funds are distributed correctly
+        let user_balance = get_user_balance(
+            address_of(user)
+        );
+        assert!(
+            user_balance.available == 1000 - worker_price,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            user_balance.locked == 0,
+            E_INVALID_BALANCE
+        );
+
+        let worker_balance = get_user_balance(
+            address_of(worker)
+        );
+        assert!(
+            worker_balance.available == worker_price,
+            E_INVALID_BALANCE
+        );
+        assert!(
+            worker_balance.locked == 0,
+            E_INVALID_BALANCE
+        );
+    }
 }
 
 
